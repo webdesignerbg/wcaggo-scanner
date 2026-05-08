@@ -1,0 +1,21 @@
+{
+  "name": "wcaggo-scanner",
+  "version": "0.1.0",
+  "description": "WCAG accessibility scanner backend for WCAGgo.com",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@axe-core/playwright": "^4.10.0",
+    "axe-core": "^4.10.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "playwright": "^1.48.0"
+  }
+}
