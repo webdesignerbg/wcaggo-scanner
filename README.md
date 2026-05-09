@@ -2,6 +2,9 @@
 
 Backend accessibility scanner for [WCAGgo.com](https://wcaggo.com). Wraps `axe-core` running inside `@sparticuz/chromium` (a memory-optimized Chromium fork) via `puppeteer-core`. Designed to fit within Render free tier limits (512MB RAM).
 
+Copyright (c) 2026 WCAGgo.com.
+All rights reserved.
+
 ## What it does
 
 `POST /scan` with a URL, get back a JSON report of WCAG 2.0 / 2.1 / 2.2 Level A and AA violations.
@@ -39,17 +42,16 @@ curl -X POST http://localhost:3000/scan \
 
 ## Deploying to Render
 
-1. Push this repo to GitHub (your existing `wcaggo-scanner` repo).
-2. In Render, your existing Web Service should auto-deploy on push.
-3. Verify settings:
+1. Push this repo to GitHub.
+2. In Render, your Web Service auto-deploys on push.
+3. Settings:
    - **Runtime:** Node
    - **Build Command:** `npm install`
    - **Start Command:** `node server.js`
    - **Instance Type:** Free
    - **Region:** Frankfurt (or your closest)
-4. No Playwright system deps step needed — sparticuz/chromium bundles what it needs.
 
-First build takes 1-2 minutes (down from 5-8 with Playwright).
+First build takes ~1 minute. Subsequent deploys are faster thanks to Render's build cache.
 
 ## Calling it from Lovable
 
@@ -62,11 +64,24 @@ const response = await fetch('https://wcaggo-scanner.onrender.com/scan', {
 const report = await response.json();
 ```
 
-## Free tier reality
+## Free tier reality (tested with real sites)
 
-- Render free spins down after 15 min idle. First request after sleep: 30-60s cold start. Cover this with a good loading UI on the frontend.
-- 512MB RAM means heavy sites (lots of JS, big DOMs) may OOM during scan. If you see scans returning 500 errors with no detail, this is likely. Mitigation: skip image loading, use `domcontentloaded` instead of `networkidle2`. Easy to add later.
-- Cold-start memory pressure is now manageable but not free. Watch the Render metrics tab.
+What works well:
+- Personal portfolios, wedding sites, small business sites — clean scans in 5-20s
+- Mid-size content sites (Wikipedia, GOV.UK) — clean scans in 15-25s
+- Heavier marketing pages with embeds and ads — scans in 30-50s
+
+Known limits:
+- Render free spins down after 15 min idle. First request after sleep: 30-60s cold start. Cover with a good loading UI on the frontend.
+- Heavy news sites (CNN, NYT-style homepages) OOM at 512MB RAM. The container restarts cleanly; users get a generic timeout error.
+- Sites with sophisticated bot detection (Amazon, etc.) may serve stripped-down pages and return false-clean results. Disclose this limitation to users.
+
+## Implementation notes
+
+- Browser instance is reused across requests (single Chromium process across all scans) for speed.
+- Page wait strategy: `domcontentloaded` + 2s buffer, not `networkidle2`. Modern ad-funded sites never reach `networkidle2` because of constant analytics/ad pings.
+- User-Agent identifies as Chrome 131 on Windows 10 to avoid being filtered by sites that block obvious bots.
+- Navigation timeout: 25s. Tune higher if you upgrade off free tier.
 
 ## Honest scope
 
@@ -76,5 +91,3 @@ Automated scanning detects roughly 30-40% of WCAG issues — the same coverage a
 - Whether focus order is *logical*
 - Whether the screen-reader experience is *coherent*
 - Most cognitive accessibility issues
-
-Position WCAGgo accordingly. Inflated claims in this category invite FTC scrutiny — accessiBe paid $1M for less.
