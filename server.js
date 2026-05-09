@@ -1,32 +1,40 @@
 import express from 'express';
 import cors from 'cors';
-import { chromium } from 'playwright';
-import AxeBuilder from '@axe-core/playwright';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Resolve axe-core's bundled minified script. We inject this into the page
+// at scan time. (We don't import axe directly — it must run in the browser context.)
+const require = createRequire(import.meta.url);
+const axePath = require.resolve('axe-core/axe.min.js');
+const axeSource = readFileSync(axePath, 'utf8');
+
 // Reuse one browser across requests — much faster than launching per scan.
 let browser;
 async function getBrowser() {
-  if (!browser || !browser.isConnected()) {
-    browser = await chromium.launch({
-      args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  if (!browser || !browser.connected) {
+    browser = await puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: { width: 1280, height: 800 },
+      executablePath: await chromium.executablePath(),
+      headless: true,
     });
   }
   return browser;
 }
 
-// Allow your Lovable frontend to call this API. Tighten origin in production.
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '1mb' }));
 
-// Health check — used by Render to verify the service is alive.
 app.get('/', (req, res) => {
-  res.json({ ok: true, service: 'wcaggo-scanner', version: '0.1.0' });
+  res.json({ ok: true, service: 'wcaggo-scanner', version: '0.2.0' });
 });
 
-// Main scan endpoint.
 // POST /scan  { "url": "https://example.com" }
 app.post('/scan', async (req, res) => {
   const startedAt = Date.now();
@@ -47,26 +55,30 @@ app.post('/scan', async (req, res) => {
     return res.status(400).json({ error: 'Only http and https URLs are supported.' });
   }
 
-  let context;
   let page;
   try {
     const b = await getBrowser();
-    context = await b.newContext({
-      userAgent:
-        'Mozilla/5.0 (compatible; WCAGgoBot/0.1; +https://wcaggo.com/bot)',
-      viewport: { width: 1280, height: 800 },
-    });
-    page = await context.newPage();
+    page = await b.newPage();
+    await page.setUserAgent(
+      'Mozilla/5.0 (compatible; WCAGgoBot/0.2; +https://wcaggo.com/bot)'
+    );
 
-    // 25s navigation budget — fits within Render free tier request limits.
     await page.goto(parsed.toString(), {
-      waitUntil: 'networkidle',
+      waitUntil: 'networkidle2',
       timeout: 25_000,
     });
 
-    const results = await new AxeBuilder({ page })
-      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
-      .analyze();
+    // Inject axe-core into the page and run it.
+    await page.evaluate(axeSource);
+    const results = await page.evaluate(async () => {
+      // eslint-disable-next-line no-undef
+      return await axe.run(document, {
+        runOnly: {
+          type: 'tag',
+          values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'],
+        },
+      });
+    });
 
     const summary = {
       url: results.url,
@@ -88,7 +100,7 @@ app.post('/scan', async (req, res) => {
         nodeCount: v.nodes.length,
         nodes: v.nodes.slice(0, 10).map((n) => ({
           target: n.target,
-          html: n.html.slice(0, 500),
+          html: (n.html || '').slice(0, 500),
           failureSummary: n.failureSummary,
         })),
       })),
@@ -104,11 +116,9 @@ app.post('/scan', async (req, res) => {
     });
   } finally {
     if (page) await page.close().catch(() => {});
-    if (context) await context.close().catch(() => {});
   }
 });
 
-// Graceful shutdown so Render restart cycles are clean.
 process.on('SIGTERM', async () => {
   if (browser) await browser.close().catch(() => {});
   process.exit(0);

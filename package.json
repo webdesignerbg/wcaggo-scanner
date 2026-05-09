@@ -1,6 +1,6 @@
 {
   "name": "wcaggo-scanner",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "WCAG accessibility scanner backend for WCAGgo.com",
   "main": "server.js",
   "type": "module",
@@ -9,13 +9,13 @@
     "dev": "node --watch server.js"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": "22.x"
   },
   "dependencies": {
-    "@axe-core/playwright": "^4.10.0",
-    "axe-core": "^4.10.0",
+    "@sparticuz/chromium": "^131.0.1",
+    "axe-core": "^4.10.2",
     "cors": "^2.8.5",
     "express": "^4.21.0",
-    "playwright": "^1.48.0"
+    "puppeteer-core": "^23.10.0"
   }
 }

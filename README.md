@@ -1,22 +1,25 @@
 # wcaggo-scanner
 
-Backend accessibility scanner for [WCAGgo.com](https://wcaggo.com). Wraps `axe-core` running inside a real headless Chromium browser via Playwright. Exposed as a small Express HTTP API.
+Backend accessibility scanner for [WCAGgo.com](https://wcaggo.com). Wraps `axe-core` running inside `@sparticuz/chromium` (a memory-optimized Chromium fork) via `puppeteer-core`. Designed to fit within Render free tier limits (512MB RAM).
 
 ## What it does
 
 `POST /scan` with a URL, get back a JSON report of WCAG 2.0 / 2.1 / 2.2 Level A and AA violations.
 
-This catches roughly 30–40% of WCAG issues automatically — the same coverage as Deque, AccessibilityChecker, Accesseon, and every other axe-core-based scanner. Manual review is needed for the rest.
+## Why this stack (not Playwright)
+
+The first version of this scanner used Playwright + full Chromium and failed to deploy on Render's free tier — Chromium's 600MB extracted footprint OOM-killed the build. This version uses `@sparticuz/chromium`, a Lambda-optimized Chromium fork that ships pre-compressed (~64MB) and runs leaner. Total `node_modules` is ~117MB.
+
+Tradeoff: Sparticuz Chromium tracks upstream Chrome with some lag. For a WCAG scanner this is fine — axe-core is what matters, the browser just renders the page.
 
 ## Local setup
 
 ```bash
 npm install
-npx playwright install chromium
 npm start
 ```
 
-Server runs on `http://localhost:3000`.
+Server runs on `http://localhost:3000`. First scan downloads/extracts Chromium to a temp directory (~30s); subsequent scans are fast.
 
 ## Test it
 
@@ -26,19 +29,7 @@ curl -X POST http://localhost:3000/scan \
   -d '{"url":"https://example.com"}'
 ```
 
-You'll get back JSON like:
-
-```json
-{
-  "url": "https://example.com/",
-  "scannedAt": "2026-05-08T...",
-  "durationMs": 2847,
-  "counts": { "violations": 0, "passes": 14, "incomplete": 0, "inapplicable": 47 },
-  "violations": []
-}
-```
-
-Try a site with real issues:
+Try a deliberately broken site for visible violations:
 
 ```bash
 curl -X POST http://localhost:3000/scan \
@@ -48,26 +39,22 @@ curl -X POST http://localhost:3000/scan \
 
 ## Deploying to Render
 
-1. Push this repo to GitHub.
-2. In Render, click **New → Web Service** and connect the repo.
-3. Configure:
+1. Push this repo to GitHub (your existing `wcaggo-scanner` repo).
+2. In Render, your existing Web Service should auto-deploy on push.
+3. Verify settings:
    - **Runtime:** Node
-   - **Build Command:** `npm install && npx playwright install chromium`
+   - **Build Command:** `npm install`
    - **Start Command:** `node server.js`
-   - **Instance Type:** Free (or Starter if you want no cold starts)
-   - **Region:** Whatever's closest to your users
-4. Click **Create Web Service**.
+   - **Instance Type:** Free
+   - **Region:** Frankfurt (or your closest)
+4. No Playwright system deps step needed — sparticuz/chromium bundles what it needs.
 
-First build takes 5–8 minutes (Chromium is a heavy install). Subsequent deploys are faster.
-
-Your scanner will be live at `https://your-service-name.onrender.com`.
+First build takes 1-2 minutes (down from 5-8 with Playwright).
 
 ## Calling it from Lovable
 
-In your Lovable frontend, call:
-
 ```javascript
-const response = await fetch('https://your-service-name.onrender.com/scan', {
+const response = await fetch('https://wcaggo-scanner.onrender.com/scan', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ url: userInputUrl }),
@@ -75,25 +62,19 @@ const response = await fetch('https://your-service-name.onrender.com/scan', {
 const report = await response.json();
 ```
 
-## Notes on free tier
+## Free tier reality
 
-Render free tier spins down after 15 minutes of inactivity. The first request after a sleep takes 30–60 seconds to cold-start before the actual scan runs. Show a clear loading UI on the frontend (staged progress, streaming pseudo-logs) so users have something to look at. See `WCAGgo`'s frontend repo for how that's wired up.
-
-To eliminate cold starts entirely, upgrade to Render Starter ($7/mo) or Railway Hobby ($5/mo).
-
-## Limits worth knowing
-
-- Single-page only (no crawling yet).
-- 25-second navigation timeout per scan — sites that are slow to reach `networkidle` will time out.
-- No support for sites behind login (would need cookie / auth handling).
-- Returns at most 10 example DOM nodes per violation (full count is in `nodeCount`).
+- Render free spins down after 15 min idle. First request after sleep: 30-60s cold start. Cover this with a good loading UI on the frontend.
+- 512MB RAM means heavy sites (lots of JS, big DOMs) may OOM during scan. If you see scans returning 500 errors with no detail, this is likely. Mitigation: skip image loading, use `domcontentloaded` instead of `networkidle2`. Easy to add later.
+- Cold-start memory pressure is now manageable but not free. Watch the Render metrics tab.
 
 ## Honest scope
 
-Automated scanners cannot detect:
-- Whether alt text is *meaningful* (only whether it exists)
-- Whether focus order is *logical* (only whether elements are focusable)
+Automated scanning detects roughly 30-40% of WCAG issues — the same coverage as Deque, AccessibilityChecker, Accesseon. Cannot detect:
+
+- Whether alt text is *meaningful*
+- Whether focus order is *logical*
 - Whether the screen-reader experience is *coherent*
 - Most cognitive accessibility issues
 
-Position WCAGgo accordingly. Inflated claims in this category attract FTC scrutiny — accessiBe paid $1M for less.
+Position WCAGgo accordingly. Inflated claims in this category invite FTC scrutiny — accessiBe paid $1M for less.
