@@ -9,7 +9,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Resolve axe-core's bundled minified script. We inject this into the page
-// at scan time. (We don't import axe directly — it must run in the browser context.)
+// at scan time (We don't import axe directly — it must run in the browser context.)
 const require = createRequire(import.meta.url);
 const axePath = require.resolve('axe-core/axe.min.js');
 const axeSource = readFileSync(axePath, 'utf8');
