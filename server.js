@@ -60,13 +60,15 @@ app.post('/scan', async (req, res) => {
     const b = await getBrowser();
     page = await b.newPage();
     await page.setUserAgent(
-      'Mozilla/5.0 (compatible; WCAGgoBot/0.2; +https://wcaggo.com/bot)'
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
     );
 
     await page.goto(parsed.toString(), {
-      waitUntil: 'networkidle2',
+      waitUntil: 'domcontentloaded',
       timeout: 25_000,
     });
+    // Give the page a moment to render after DOM is ready
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     // Inject axe-core into the page and run it.
     await page.evaluate(axeSource);
