@@ -106,6 +106,27 @@ app.post('/scan', async (req, res) => {
           failureSummary: n.failureSummary,
         })),
       })),
+      incomplete: results.incomplete.map((i) => ({
+        id: i.id,
+        impact: i.impact,
+        help: i.help,
+        helpUrl: i.helpUrl,
+        description: i.description,
+        wcagTags: i.tags.filter((t) => t.startsWith('wcag')),
+        nodeCount: i.nodes.length,
+        nodes: i.nodes.slice(0, 10).map((n) => ({
+          target: n.target,
+          html: (n.html || '').slice(0, 500),
+        })),
+      })),
+      passes: results.passes.map((p) => ({
+        id: p.id,
+        help: p.help,
+        helpUrl: p.helpUrl,
+        description: p.description,
+        wcagTags: p.tags.filter((t) => t.startsWith('wcag')),
+        nodeCount: p.nodes.length,
+      })),
     };
 
     res.json(summary);
